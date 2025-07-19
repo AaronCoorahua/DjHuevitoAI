@@ -27,7 +27,7 @@ vision_model = genai.GenerativeModel('gemini-1.5-flash-latest')
 text_model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 VOICE_IDS = {
-    "bad_bunny": "JBFqnCBsd6RMkjVDRZzb", # Ejemplo: "SOkoPBb6gm3cm657p2kE"
+    "bad_bunny": "6DsgX00trsI64jl83WWS", # Ejemplo: "SOkoPBb6gm3cm657p2kE"
     "bob_sponge": "G4IAP30yc6c1gK0csDfu"  # Ejemplo: "oVo2c4VvCMvK4dt4vkaI"
 }
 
