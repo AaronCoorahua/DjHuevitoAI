@@ -40,16 +40,25 @@ def capture_and_analyze():
     analisis = analizar_ambiente(pil)
     
     if analisis:
-        # --- USAREMOS UN LOCK PARA ACCEDER A LAS VARIABLES COMPARTIDAS ---
         with analysis_lock:
             current_analysis = analisis
-            # --- PASAR EL MODELO DE VOZ SELECCIONADO ---
-            current_dj_phrase = generar_voz_dj(analisis, current_voice_model)
+            # --- AHORA RECIBIMOS FRASE Y AUDIO ---
+            phrase, audio_bytes = generar_voz_dj(analisis, current_voice_model)
+            current_dj_phrase = phrase
         
-        socketio.emit('analysis_update', {
+        # --- PREPARAR DATOS PARA ENVIAR ---
+        data_to_emit = {
             'analysis': current_analysis,
-            'dj_phrase': current_dj_phrase
-        })
+            'dj_phrase': current_dj_phrase,
+            'audio_base64': None # Inicializamos en None
+        }
+
+        # Si tenemos audio, lo codificamos en Base64
+        if audio_bytes:
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            data_to_emit['audio_base64'] = audio_base64
+
+        socketio.emit('analysis_update', data_to_emit)
 
         # Imprimir el análisis como antes
         print("\n--- ANÁLISIS DEL AMBIENTE ---")
@@ -62,13 +71,13 @@ def capture_and_analyze():
         # Determinar intervalo basado en energía
         nivel = analisis.get("nivel_energia", 5)
         if nivel <= 4:
-            intervalo = 2
+            intervalo = 20
         elif nivel <= 7:
-            intervalo = 4
+            intervalo = 40
         else:
-            intervalo = 6
+            intervalo = 60
     else:
-        intervalo = 8
+        intervalo = 80
     
     # Programar próximo análisis
     analysis_timer = threading.Timer(intervalo, capture_and_analyze)
@@ -79,19 +88,28 @@ def capture_and_analyze():
 # --- NUEVO MANEJADOR PARA CAMBIAR LA VOZ ---
 @socketio.on('change_voice_model')
 def handle_change_voice_model(data):
-    global current_voice_model
+    global current_voice_model, current_analysis, current_dj_phrase
     voice = data.get('voice_model')
     if voice:
         with analysis_lock:
             current_voice_model = voice
         print(f"Modelo de voz cambiado a: {current_voice_model}")
-        # Opcional: podrías regenerar la frase actual con la nueva voz
+        
+        # Regenerar la frase y el audio con la nueva voz
         if current_analysis:
-            new_phrase = generar_voz_dj(current_analysis, current_voice_model)
-            socketio.emit('analysis_update', {
+            phrase, audio_bytes = generar_voz_dj(current_analysis, current_voice_model)
+            current_dj_phrase = phrase
+
+            data_to_emit = {
                 'analysis': current_analysis,
-                'dj_phrase': new_phrase
-            })
+                'dj_phrase': current_dj_phrase,
+                'audio_base64': None
+            }
+            if audio_bytes:
+                audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                data_to_emit['audio_base64'] = audio_base64
+            
+            socketio.emit('analysis_update', data_to_emit)
 
 @socketio.on('connect')
 def handle_connect():
