@@ -15,37 +15,49 @@ app.config['SECRET_KEY'] = 'tu_clave_secreta'
 CORS(app, origins="*")
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+
+current_voice_model = 'bad_bunny' # Valor por defecto
+analysis_lock = threading.Lock()
+
 cap = None
 analysis_timer = None
 current_analysis = None
 current_dj_phrase = None
 
 def capture_and_analyze():
-    global cap, analysis_timer, current_analysis, current_dj_phrase
+    global cap, analysis_timer, current_analysis, current_dj_phrase, current_voice_model
     
     if cap is None or not cap.isOpened():
         return
-    
+
     ret, frame = cap.read()
     if not ret:
         return
     
-    # Convertir frame para análisis
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     pil = Image.fromarray(rgb)
     
-    # Realizar análisis
     analisis = analizar_ambiente(pil)
     
     if analisis:
-        current_analysis = analisis
-        current_dj_phrase = generar_voz_dj(analisis)
+        # --- USAREMOS UN LOCK PARA ACCEDER A LAS VARIABLES COMPARTIDAS ---
+        with analysis_lock:
+            current_analysis = analisis
+            # --- PASAR EL MODELO DE VOZ SELECCIONADO ---
+            current_dj_phrase = generar_voz_dj(analisis, current_voice_model)
         
-        # Enviar datos a todos los clientes conectados
         socketio.emit('analysis_update', {
             'analysis': current_analysis,
             'dj_phrase': current_dj_phrase
         })
+
+        # Imprimir el análisis como antes
+        print("\n--- ANÁLISIS DEL AMBIENTE ---")
+        print(f"  Descripción: {analisis.get('descripcion_general', 'N/A')}")
+        print(f"  Nivel de Energía: {analisis.get('nivel_energia', 'N/A')} / 10")
+        print(f"  ¿Gente Bailando?: {'Sí' if analisis.get('personas_bailando') else 'No'}")
+        print(f"  ¿Gente Aburrida?: {'Sí' if analisis.get('personas_aburridas') else 'No'}")
+        print("--------------------------------")
         
         # Determinar intervalo basado en energía
         nivel = analisis.get("nivel_energia", 5)
@@ -62,6 +74,24 @@ def capture_and_analyze():
     analysis_timer = threading.Timer(intervalo, capture_and_analyze)
     analysis_timer.daemon = True
     analysis_timer.start()
+
+
+# --- NUEVO MANEJADOR PARA CAMBIAR LA VOZ ---
+@socketio.on('change_voice_model')
+def handle_change_voice_model(data):
+    global current_voice_model
+    voice = data.get('voice_model')
+    if voice:
+        with analysis_lock:
+            current_voice_model = voice
+        print(f"Modelo de voz cambiado a: {current_voice_model}")
+        # Opcional: podrías regenerar la frase actual con la nueva voz
+        if current_analysis:
+            new_phrase = generar_voz_dj(current_analysis, current_voice_model)
+            socketio.emit('analysis_update', {
+                'analysis': current_analysis,
+                'dj_phrase': new_phrase
+            })
 
 @socketio.on('connect')
 def handle_connect():

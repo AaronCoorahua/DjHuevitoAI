@@ -1,0 +1,7 @@
+# 1. Crear nueva rama con tus cambios
+git checkout -b feature/voice-model-update
+git add .
+git commit -m "Agregar funcionalidad para cambiar modelo de voz"# 1. Crear nueva rama con tus cambios
+git checkout -b feature/voice-model-update
+git add .
+git commit -m "Agregar funcionalidad para cambiar modelo

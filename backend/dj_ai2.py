@@ -21,19 +21,26 @@ Eres un analista de multitudes experto. Tu trabajo es observar una imagen de una
 """
 
 PROMPT_VOZ_DJ = """
-Eres "DJ Huevito AI", un DJ animador de fiestas. Eres carismático, un poco exagerado y tu objetivo es que NADIE se aburra.
-Has recibido un análisis JSON del ambiente actual. Tu tarea es generar UNA SOLA LÍNEA de diálogo corta y enérgica para animar a la gente.
+Eres un DJ animador de fiestas. Tu personalidad cambiará según el personaje que se te asigne.
+Tu objetivo es que NADIE se aburra. Has recibido un análisis JSON del ambiente actual. Tu tarea es generar UNA SOLA LÍNEA de diálogo corta y enérgica para animar a la gente.
 
-- Si el nivel de energía es bajo (1-4), ¡motívalos a moverse! Lanza un reto o pregunta qué pasa.
+PERSONAJES DISPONIBLES:
+- "bad_bunny": Eres Bad Bunny. Usa jerga boricua, habla con un estilo urbano, relajado pero con energía. 'Mera, mano, ¿qué fue?', '¡Fuego, fuego!'.
+- "bob_sponge": Eres Bob Esponja. Eres extremadamente optimista, inocente y enérgico. Usa frases como '¡Estoy listo!', '¡Krabby Patty!', ríete de forma escandalosa.
+
+PERSONAJE ACTUAL: {personaje}
+
+REGLAS:
+- Si el nivel de energía es bajo (1-4), ¡motívalos a moverse!
 - Si la energía es media (5-7), anímalos a que suban el nivel.
-- Si la energía es alta (8-10) y están bailando, ¡felicítalos y celebra con ellos!
+- Si la energía es alta (8-10) y están bailando, ¡celébralo con ellos!
 - Si no ves a nadie, haz un comentario gracioso sobre una fiesta fantasma.
 - Si ves gente aburrida, dirígete a ellos directamente de forma divertida.
 
 Aquí está el reporte del ambiente:
 {reporte_json}
 
-Basado en este reporte, dame solo la frase que dirías. Sin introducciones, sin explicaciones, solo la frase.
+Basado en el reporte y actuando como {personaje}, dame solo la frase que dirías. Sin introducciones, ni explicaciones, SOLO LA FRASE.
 """
 
 timer = None
@@ -50,91 +57,20 @@ def analizar_ambiente(frame_image):
         print(f"Error en el análisis de ambiente: {e}")
         return None
 
-# --- NUEVO: La función que genera la voz del DJ ---
-def generar_voz_dj(analisis_dict):
+# --- FUNCIÓN GENERAR VOZ ACTUALIZADA ---
+def generar_voz_dj(analisis_dict, personaje="bad_bunny"): # Añadimos el parámetro 'personaje'
     try:
-        print("Generando frase del DJ...")
-        # Convertimos el diccionario de análisis a un string JSON para el prompt
+        print(f"Generando frase del DJ como: {personaje}...")
         reporte_str = json.dumps(analisis_dict, indent=2)
         
-        # Rellenamos el prompt con el reporte
-        prompt_final = PROMPT_VOZ_DJ.format(reporte_json=reporte_str)
+        # Rellenamos el prompt con el reporte y el personaje
+        prompt_final = PROMPT_VOZ_DJ.format(reporte_json=reporte_str, personaje=personaje)
         
         response = text_model.generate_content(prompt_final)
         
-        # La respuesta debería ser solo la frase, la limpiamos por si acaso
         frase_dj = response.text.strip()
         return frase_dj
         
     except Exception as e:
         print(f"Error al generar la voz del DJ: {e}")
         return "¡Se me cruzaron los cables! ¡Pero la fiesta sigue!"
-
-def programa_analisis():
-    global timer
-    ret, frame = cap.read()
-    if not ret:
-        print("No se capturó cuadro.")
-        return
-
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    pil = Image.fromarray(rgb)
-    analisis = analizar_ambiente(pil)
-
-    if analisis:
-        # nivel = analisis.get("nivel_energia", 5)
-        # frase = generar_voz_dj(analisis)
-        # print(f'\nDJ HUEVITO AI (nivel {nivel}): "{frase}"\n')
-        nivel = analisis.get("nivel_energia", 5)
-
-        # Imprimir el análisis como antes
-        print("\n--- ANÁLISIS DEL AMBIENTE ---")
-        print(f"  Descripción: {analisis.get('descripcion_general', 'N/A')}")
-        print(f"  Nivel de Energía: {analisis.get('nivel_energia', 'N/A')} / 10")
-        print(f"  ¿Gente Bailando?: {'Sí' if analisis.get('personas_bailando') else 'No'}")
-        print(f"  ¿Gente Aburrida?: {'Sí' if analisis.get('personas_aburridas') else 'No'}")
-        print("-----------------------------")
-
-        # --- NUEVO: 2. Generar y mostrar la voz del DJ ---
-        voz_dj = generar_voz_dj(analisis)
-        if voz_dj:
-            print(f'\nDJ HUEVITO AI: "{voz_dj}"\n')
-
-        if nivel <= 4:
-            intervalo = 2
-        elif nivel <= 7:
-            intervalo = 5
-        else:
-            intervalo = 7
-    else:
-        intervalo = 10
-
-    timer = threading.Timer(intervalo, programa_analisis)
-    timer.daemon = True
-    timer.start()
-
-def main_loop():
-    global cap, timer
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: no se puede abrir la cámara.")
-        return
-
-    print("Iniciando análisis automático...")
-    programa_analisis()  # lanza la primera ejecución
-
-    while True:
-        ret, frame = cap.read()
-        if not ret: break
-        cv2.imshow('DJ Huevito AI', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-        time.sleep(0.1)
-
-    if timer:
-        timer.cancel()
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main_loop()
