@@ -9,6 +9,7 @@
   let djPhrase = '';
   let selectedVoiceModel = 'bad_bunny';
   let frameInterval;
+  let currentAudio = null; // Para gestionar la reproducción
   
   const voiceModels = [
     { id: 'bad_bunny', name: '🐰 Bad Bunny', emoji: '🐰' },
@@ -26,6 +27,11 @@
     socket.on('analysis_update', (data) => {
       analysis = data.analysis;
       djPhrase = data.dj_phrase;
+      
+      // Si recibimos audio, lo reproducimos
+      if (data.audio_base64) {
+        playAudio(data.audio_base64);
+      }
     });
     
     socket.on('frame_update', (data) => {
@@ -90,6 +96,20 @@
     if (nivel <= 3) return '#ff4444';
     if (nivel <= 6) return '#ffaa00';
     return '#44ff44';
+  }
+
+  // --- FUNCIÓN PARA REPRODUCIR AUDIO DESDE BASE64 ---
+  function playAudio(base64String) {
+    if (currentAudio && !currentAudio.paused) {
+      currentAudio.pause(); // Detener el audio anterior si aún se está reproduciendo
+    }
+    const audioSource = `data:audio/mpeg;base64,${base64String}`;
+    currentAudio = new Audio(audioSource);
+    currentAudio.play().catch(e => {
+      // Los navegadores modernos bloquean el autoplay hasta la primera interacción del usuario.
+      // El clic en "Iniciar Cámara" ya cuenta como una interacción, por lo que esto debería funcionar.
+      console.error("Error al reproducir audio:", e);
+    });
   }
 </script>
 

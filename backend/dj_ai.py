@@ -1,119 +1,105 @@
-import cv2
+# dj_ai.py
+
 import os
+import json
+import base64
 import google.generativeai as genai
 from dotenv import load_dotenv
-import time
-import json
-from PIL import Image
+from elevenlabs.client import ElevenLabs
 
-# --- Carga y configuración (sin cambios) ---
+# --- Carga de Claves ---
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("No se encontró la GEMINI_API_KEY.")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+
+if not GEMINI_API_KEY or not ELEVENLABS_API_KEY:
+    raise ValueError("Asegúrate de que GEMINI_API_KEY y ELEVENLABS_API_KEY están en tu .env")
+
+# --- Inicialización de Clientes ---
 genai.configure(api_key=GEMINI_API_KEY)
-# Usamos un modelo que puede manejar visión y texto
+elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
 vision_model = genai.GenerativeModel('gemini-1.5-flash-latest')
-# --- NUEVO: Usaremos el mismo modelo para texto, es eficiente ---
 text_model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
-
-# --- Prompt para el análisis de la imagen (sin cambios) ---
-PROMPT_ANALISIS = """
-Eres un analista de multitudes experto. Tu trabajo es observar una imagen de una fiesta y evaluar la energía. Proporciona tu análisis únicamente en formato JSON con la siguiente estructura:
-{
-  "hay_personas": boolean, "numero_personas": integer, "descripcion_general": "string",
-  "nivel_energia": integer (1-10), "personas_bailando": boolean, "personas_aburridas": boolean
+VOICE_IDS = {
+    "bad_bunny": "6DsgX00trsI64jl83WWS", 
+    "bob_sponge": "G4IAP30yc6c1gK0csDfu"
 }
+
+# --- PROMPTS FUSIONADOS ---
+
+PROMPT_ANALISIS = """
+Eres un analista de multitudes experto y DJ. Tu trabajo es observar una imagen de una fiesta y evaluar la energía. Proporciona tu análisis únicamente en formato JSON con la siguiente estructura:
+{
+  "hay_personas": boolean,
+  "numero_personas": integer,
+  "descripcion_general": "string",
+  "nivel_energia": integer (1-10),
+  "personas_bailando": boolean,
+  "personas_aburridas": boolean,
+  "genero_recomendado": "string"
+}
+Para "genero_recomendado", elige uno de esta lista: [reggaeton, edm, chill, salsa, rock, kpop, lofi, disco, techno, meditacion]. Evalúa el estilo del lugar, número de personas, sus gestos y ropa. Sé creativo pero preciso.
 """
 
-# --- NUEVO: El prompt para la voz del DJ ---
 PROMPT_VOZ_DJ = """
-Eres "DJ Huevito AI", un DJ animador de fiestas. Eres carismático, un poco exagerado y tu objetivo es que NADIE se aburra.
-Has recibido un análisis JSON del ambiente actual. Tu tarea es generar UNA SOLA LÍNEA de diálogo corta y enérgica para animar a la gente.
+Eres un DJ animador. Tu personalidad cambiará según el personaje que se te asigne.
+Tu objetivo es que NADIE se aburra. Has recibido un análisis JSON del ambiente. Tu tarea es generar UNA SOLA LÍNEA de diálogo corta y enérgica.
 
-- Si el nivel de energía es bajo (1-4), ¡motívalos a moverse! Lanza un reto o pregunta qué pasa.
+PERSONAJES DISPONIBLES:
+- "bad_bunny": Eres Bad Bunny. Usa jerga boricua, habla con un estilo urbano, relajado pero con energía. 'Mera, mano, ¿qué fue?', '¡Fuego, fuego!'.
+- "bob_sponge": Eres Bob Esponja. Eres extremadamente optimista, inocente y enérgico. Usa frases como '¡Estoy listo!', ríete de forma escandalosa.
+
+PERSONAJE ACTUAL: {personaje}
+
+REGLAS:
+- Si no hay gente, haz un chiste sobre una fiesta fantasma.
+- Si la gente está aburrida, anímalos directamente.
+- Si la energía es baja (1-4), motívalos a moverse.
 - Si la energía es media (5-7), anímalos a que suban el nivel.
-- Si la energía es alta (8-10) y están bailando, ¡felicítalos y celebra con ellos!
-- Si no ves a nadie, haz un comentario gracioso sobre una fiesta fantasma.
-- Si ves gente aburrida, dirígete a ellos directamente de forma divertida.
+- Si la energía es alta (8-10), celébralo con ellos.
 
 Aquí está el reporte del ambiente:
 {reporte_json}
 
-Basado en este reporte, dame solo la frase que dirías. Sin introducciones, sin explicaciones, solo la frase.
+Actuando como {personaje}, dame solo la frase que dirías. Sin introducciones, ni explicaciones, SOLO LA FRASE.
 """
 
 def analizar_ambiente(frame_image):
     try:
-        print("Enviando imagen para análisis de ambiente...")
+        print("🤖 Analizando ambiente con Gemini Vision...")
         response = vision_model.generate_content([PROMPT_ANALISIS, frame_image])
         json_text = response.text.strip().replace("```json", "").replace("```", "")
-        analisis = json.loads(json_text)
-        return analisis
+        return json.loads(json_text)
     except Exception as e:
         print(f"Error en el análisis de ambiente: {e}")
         return None
 
-# --- NUEVO: La función que genera la voz del DJ ---
-def generar_voz_dj(analisis_dict):
+def generar_voz_dj(analisis_dict, personaje="bad_bunny"):
     try:
-        print("Generando frase del DJ...")
-        # Convertimos el diccionario de análisis a un string JSON para el prompt
+        # 1. Generar la frase con Gemini
+        print(f"🗣️  Generando frase como: {personaje}...")
         reporte_str = json.dumps(analisis_dict, indent=2)
-        
-        # Rellenamos el prompt con el reporte
-        prompt_final = PROMPT_VOZ_DJ.format(reporte_json=reporte_str)
-        
+        prompt_final = PROMPT_VOZ_DJ.format(reporte_json=reporte_str, personaje=personaje)
         response = text_model.generate_content(prompt_final)
+        frase_dj = response.text.strip().replace('"', '') # Limpiar comillas
         
-        # La respuesta debería ser solo la frase, la limpiamos por si acaso
-        frase_dj = response.text.strip()
-        return frase_dj
+        # 2. Generar el audio con ElevenLabs
+        print(f"🔊 Generando audio para: '{frase_dj}'")
+        voice_id = VOICE_IDS.get(personaje, VOICE_IDS["bad_bunny"])
         
+        audio_stream = elevenlabs_client.text_to_speech.convert(
+            text=frase_dj,
+            voice_id=voice_id,
+            model_id="eleven_multilingual_v2"
+        )
+        
+        audio_bytes = b"".join(audio_stream)
+        
+        return frase_dj, audio_bytes
+
     except Exception as e:
-        print(f"Error al generar la voz del DJ: {e}")
-        return "¡Se me cruzaron los cables! ¡Pero la fiesta sigue!"
-
-
-def main():
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: No se puede abrir la cámara.")
-        return
-
-    while True:
-        ret, frame = cap.read()
-        if not ret: break
-
-        cv2.imshow('DJ Huevito AI - Vista de la Camara', frame)
-
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(rgb_frame)
-
-        # 1. Obtener el análisis de la escena
-        analisis = analizar_ambiente(pil_image)
-
-        if analisis:
-            # Imprimir el análisis como antes
-            print("\n--- ANÁLISIS DEL AMBIENTE ---")
-            print(f"  Descripción: {analisis.get('descripcion_general', 'N/A')}")
-            print(f"  Nivel de Energía: {analisis.get('nivel_energia', 'N/A')} / 10")
-            print(f"  ¿Gente Bailando?: {'Sí' if analisis.get('personas_bailando') else 'No'}")
-            print(f"  ¿Gente Aburrida?: {'Sí' if analisis.get('personas_aburridas') else 'No'}")
-            print("-----------------------------")
-
-            # --- NUEVO: 2. Generar y mostrar la voz del DJ ---
-            voz_dj = generar_voz_dj(analisis)
-            if voz_dj:
-                print(f'\nDJ HUEVITO AI: "{voz_dj}"\n')
-
-        print("\nEsperando 10 segundos para el próximo análisis...")
-        if cv2.waitKey(10000) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
+        print(f"Error al generar la voz o el audio del DJ: {e}")
+        fallback_phrase = "¡Se me cruzaron los cables! ¡Pero la fiesta sigue!"
+        return fallback_phrase, None
